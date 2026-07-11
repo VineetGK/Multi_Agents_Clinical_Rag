@@ -3,9 +3,10 @@ import pandas as pd
 import faiss
 import pickle
 import os
+from pathlib import Path
 from sentence_transformers import SentenceTransformer
 
-DATA_DIR = 'multi-agent-rag/data'
+DATA_DIR = str(Path(__file__).resolve().parent.parent / "data")
 
 def build_index():
     print("Loading synthetic data...")

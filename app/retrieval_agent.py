@@ -2,11 +2,14 @@ import os
 import numpy as np
 import faiss
 import pickle
+from pathlib import Path
 from sentence_transformers import SentenceTransformer
 from typing import List, Dict, Any
 
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+
 class RetrievalAgent:
-    def __init__(self, index_path: str = "multi-agent-rag/data/faiss_index.bin", meta_path: str = "multi-agent-rag/data/chunks_meta.pkl"):
+    def __init__(self, index_path: str = str(DATA_DIR / "faiss_index.bin"), meta_path: str = str(DATA_DIR / "chunks_meta.pkl")):
         self.index_path = index_path
         self.meta_path = meta_path
         self.encoder = SentenceTransformer('all-MiniLM-L6-v2')

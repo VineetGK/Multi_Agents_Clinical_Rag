@@ -19,7 +19,7 @@ graph TD
 
 ## Folder Structure
 ```
-multi-agent-rag/
+Multi_Agents_Clinical_Rag/
 ├── app/
 │   ├── planner_agent.py
 │   ├── retrieval_agent.py
@@ -29,22 +29,15 @@ multi-agent-rag/
 │   └── api.py
 ├── data/
 │   └── (Synthetic CSVs and FAISS Index)
-├── notebooks/
-│   └── demo.ipynb
-├── evals/
-│   ├── sample_questions.json
-│   └── simple_eval.py
-├── tests/
-│   └── test_smoke.py
+├── streamlit_app.py
+├── requirements.txt
 └── README.md
 ```
 
-## Setup Steps for Colab
-1. Upload the `multi-agent-rag` folder to your Google Colab environment.
-2. Install dependencies: `!pip install pandas numpy faker fastapi uvicorn nest_asyncio pyngrok sentence-transformers faiss-cpu pydantic`
-3. Set `PYTHONPATH` to include the folder: `import sys; sys.path.append('multi-agent-rag')`
-4. Run the data generation and ingestion scripts if the index isn't present.
-5. Start the FastAPI server using `uvicorn` and `nest_asyncio`.
+## Setup Steps
+1. Install dependencies: `pip install -r requirements.txt`
+2. Run the ingestion script to (re)build the FAISS index from the CSVs in `data/`: `python -m app.ingest`
+3. Start the API: `uvicorn app.api:app --reload`, or launch the UI: `streamlit run streamlit_app.py`
 
 ## Example API Request/Response
 **POST /ask**
