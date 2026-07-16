@@ -24,13 +24,30 @@ class PlannerAgent:
         target_sources = ["clinical_notes"]
         subqueries = [user_query]
 
+        # Route to appropriate data sources based on query keywords
         if "risk" in query_lower or "readmission" in query_lower:
             intent = "risk_assessment"
-            target_sources.extend(["encounters", "labs", "diagnoses"])
+            target_sources = ["encounters", "labs", "diagnoses", "clinical_notes"]
 
         elif "summarize" in query_lower or "history" in query_lower:
             intent = "patient_summarization"
-            target_sources.extend(["medications", "diagnoses", "labs"])
+            target_sources = ["medications", "diagnoses", "labs", "encounters", "clinical_notes"]
+
+        elif "medication" in query_lower or "meds" in query_lower or "drug" in query_lower or "prescription" in query_lower:
+            intent = "medication_inquiry"
+            target_sources = ["medications", "clinical_notes"]
+
+        elif "diagnos" in query_lower or "condition" in query_lower or "disease" in query_lower or "chronic" in query_lower:
+            intent = "diagnosis_inquiry"
+            target_sources = ["diagnoses", "clinical_notes"]
+
+        elif "lab" in query_lower or "blood" in query_lower or "test result" in query_lower or "abnormal" in query_lower:
+            intent = "lab_inquiry"
+            target_sources = ["labs", "clinical_notes"]
+
+        elif "encounter" in query_lower or "visit" in query_lower or "admission" in query_lower or "hospital" in query_lower:
+            intent = "encounter_inquiry"
+            target_sources = ["encounters", "clinical_notes"]
 
         target_sources = list(set(target_sources))
 

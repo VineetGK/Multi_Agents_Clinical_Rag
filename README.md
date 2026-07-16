@@ -1,81 +1,82 @@
-# Multi-Agent Clinical Document Assistant
+# Clinical RAG Patient Query System
 
-## Project Overview
-A portfolio-ready multi-agent Retrieval-Augmented Generation (RAG) project designed to answer healthcare questions from synthetic EHR data and clinical notes. The system utilizes three core agents (Planner, Retrieval, Evaluator) to ensure robust and grounded responses.
+A RAG-based clinical question-answering system for 500 synthetic EHR patients. Query demographics, diagnoses, labs, medications, encounters, and clinical notes with natural language.
 
-## Privacy Note
-**All EHR data used and generated in this project is 100% synthetic.** No real patient data or Protected Health Information (PHI) is included.
+## Quick Start
 
-## Architecture Diagram
-```mermaid
-graph TD
-    User-->API
-    API-->Orchestrator
-    Orchestrator-->PlannerAgent
-    Orchestrator-->RetrievalAgent
-    Orchestrator-->EvaluatorAgent
-    RetrievalAgent-->VectorStore[(FAISS Vector Store)]
+```bash
+# Install
+pip install -r requirements.txt
+
+# Run Streamlit app
+streamlit run streamlit_app.py
+
+# Or CLI query
+python query.py "Patient P0001 age sex race chronic conditions"
 ```
 
-## Folder Structure
+## Deploy to Streamlit Cloud
+
+1. Push this repo to GitHub
+2. Go to [share.streamlit.io](https://share.streamlit.io)
+3. Connect your GitHub repo
+4. Main file: `streamlit_app.py`
+5. Requirements: `requirements.txt` (auto-detected)
+6. Deploy!
+
+## Features
+
+- **500 patients** with full EHR data
+- **6 data tables**: patients, diagnoses, labs, medications, encounters, clinical notes
+- **20 query categories** covering all your clinical questions
+- **Grounded answers** with source citations
+- **Streamlit UI** with patient sidebar, quick actions, and tabbed views
+
+## Example Queries
+
+| Category | Query |
+|----------|-------|
+| Demographics | `Patient P0001 age sex race chronic conditions` |
+| Diagnoses | `What diagnoses has patient P0001 had and when` |
+| Labs | `Patient P0001 latest lab results abnormal flags` |
+| A1c Trend | `Patient P0001 A1c trend diabetes control` |
+| Renal | `Patient P0001 creatinine renal dysfunction` |
+| Infection | `Patient P0001 WBC infection inflammation` |
+| Anemia | `Patient P0001 hemoglobin anemia` |
+| Heart Failure | `Patient P0001 heart failure CHF BNP` |
+| CKD | `Patient P0001 CKD creatinine` |
+| Diabetes | `Patient P0001 diabetes control glucose A1c` |
+| Multimorbidity | `Patient P0001 multimorbidity` |
+| Discharge Notes | `Patient P0001 discharge summary` |
+| Readmission Risk | `Patient P0001 readmission risk factors` |
+| Handoff | `Patient P0001 handoff summary` |
+| Timeline | `Patient P0001 timeline recent clinical` |
+| Encounters | `Patient P0001 encounters how many most recent` |
+| Meds Alignment | `Patient P0001 medications align chronic conditions` |
+| 30-day Follow-up | `Patient P0001 follow-up 30 day discharge` |
+
+## Data Files
+
+- `data/patients.csv` - 500 patients
+- `data/diagnoses.csv` - ~1,500 diagnoses
+- `data/labs.csv` - ~1,500 lab results
+- `data/medications.csv` - ~500 medications
+- `data/encounters.csv` - ~1,500 encounters
+- `data/clinical_notes.csv` - ~1,000 notes
+- `data/faiss_index.bin` - Vector index for notes
+- `data/chunks_meta.pkl` - Chunk metadata
+
+## Architecture
+
 ```
-multi-agent-rag/
-├── app/
-│   ├── planner_agent.py
-│   ├── retrieval_agent.py
-│   ├── evaluator_agent.py
-│   ├── orchestrator.py
-│   ├── ingest.py
-│   └── api.py
-├── data/
-│   └── (Synthetic CSVs and FAISS Index)
-├── notebooks/
-│   └── demo.ipynb
-├── evals/
-│   ├── sample_questions.json
-│   └── simple_eval.py
-├── tests/
-│   └── test_smoke.py
-└── README.md
+Query → Orchestrator
+  ├── Count queries → Direct DataFrame ops
+  ├── Complex clinical → ClinicalAnalyzer (full patient profile)
+  │     ├── Demographics, Diagnoses, Labs, Meds, Encounters, Notes
+  │     └── Analysis: Readmission, Diabetes, Renal, HF, Anemia, Infection, Multimorbidity, Timeline, Follow-up
+  └── General RAG → Planner → FAISS Retriever → Evaluator
 ```
 
-## Setup Steps for Colab
-1. Upload the `multi-agent-rag` folder to your Google Colab environment.
-2. Install dependencies: `!pip install pandas numpy faker fastapi uvicorn nest_asyncio pyngrok sentence-transformers faiss-cpu pydantic`
-3. Set `PYTHONPATH` to include the folder: `import sys; sys.path.append('multi-agent-rag')`
-4. Run the data generation and ingestion scripts if the index isn't present.
-5. Start the FastAPI server using `uvicorn` and `nest_asyncio`.
+## Fine-Tuning Data
 
-## Example API Request/Response
-**POST /ask**
-```json
-{
-  "query": "What are the active medications for patient P0001?"
-}
-```
-**Response**
-```json
-{
-  "query": "What are the active medications for patient P0001?",
-  "answer": "Based on the retrieved clinical records:...",
-  "grounded": true,
-  "sources": [...],
-  "evaluation": {
-    "issues": [],
-    "suggested_retry": false
-  }
-}
-```
-
-## Sample Questions
-- What factors suggest the patient is high risk for 30-day readmission?
-- Summarize the diabetic patient's recent history and possible follow-up concerns.
-- Did patient P0010 have any abnormal lab results recently?
-
-## Limitations
-- The current planner and evaluator use heuristics instead of an actual LLM to allow for lightweight, offline testing in Colab.
-- Simple embedding models (`all-MiniLM-L6-v2`) are used for speed.
-
-## Future Improvements
-- Integrate LangGraph/LangChain with an actual LLM (e.g., OpenAI or Llama 3) for the Planner and Evaluator agents.
-- Add a dedicated re-ranking model for better retrieval accuracy.
+`ift_dataset_alpaca.json` - 900 instruction-following examples for LLM fine-tuning (50 patients × 18 question types).

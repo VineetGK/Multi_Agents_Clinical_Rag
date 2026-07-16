@@ -6,7 +6,7 @@ from sentence_transformers import SentenceTransformer
 from typing import List, Dict, Any
 
 class RetrievalAgent:
-    def __init__(self, index_path: str = "multi-agent-rag/data/faiss_index.bin", meta_path: str = "multi-agent-rag/data/chunks_meta.pkl"):
+    def __init__(self, index_path: str = "data/faiss_index.bin", meta_path: str = "data/chunks_meta.pkl"):
         self.index_path = index_path
         self.meta_path = meta_path
         self.encoder = SentenceTransformer('all-MiniLM-L6-v2')
@@ -27,10 +27,13 @@ class RetrievalAgent:
         query_vector = self.encoder.encode([search_text]).astype('float32')
 
         # Retrieve more than top_k to allow for filtering headroom
-        search_k = top_k * 20 if plan.patient_id_filter else top_k
+        # Use much larger search_k when patient filter is applied to ensure we find enough matching patient-specific results are found
+        search_k = top_k * 200 if plan.patient_id_filter else top_k
         distances, indices = self.index.search(query_vector, search_k)
 
         results = []
+        target_sources = set(plan.target_sources) if hasattr(plan, 'target_sources') else set()
+        
         for i, idx in enumerate(indices[0]):
             if idx != -1 and idx < len(self.metadata):
                 meta = self.metadata[idx]
@@ -39,12 +42,17 @@ class RetrievalAgent:
                 if plan.patient_id_filter and meta.get('patient_id') != plan.patient_id_filter:
                     continue
 
+                # Apply Metadata Filter for Target Sources
+                source_table = meta.get('source_table', 'Unknown')
+                if target_sources and source_table not in target_sources:
+                    continue
+
                 results.append({
                     "chunk_id": int(idx),
                     "text": meta['text'],
                     "metadata": {
                         "patient_id": meta.get('patient_id', 'Unknown'),
-                        "source": meta.get('source_table', 'Unknown')
+                        "source": source_table
                     },
                     "score": float(distances[0][i])
                 })
