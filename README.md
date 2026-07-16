@@ -4,9 +4,8 @@ A RAG-based clinical question-answering system for 500 synthetic EHR patients. Q
 
 ## 🌐 Live Demo
 
-https://multiagentsclinicalrag-axnmlwsn8zpaxswr7zhpb3.streamlit.app/
 
-
+👉 **[Live Agent App](https://multiagentsclinicalrag-axnmlwsn8zpaxswr7zhpb3.streamlit.app/)**
 
 ## Quick Start
 
