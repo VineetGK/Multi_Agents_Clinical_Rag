@@ -4,7 +4,7 @@ A RAG-based clinical question-answering system for 500 synthetic EHR patients. Q
 
 ## 🌐 Live Demo
 
-**[Try it on Streamlit Cloud →](https://clinical-rag-standalone.streamlit.app)**
+**[Try it on Streamlit Cloud →]([https://clinical-rag-standalone.streamlit.app](https://multiagentsclinicalrag-axnmlwsn8zpaxswr7zhpb3.streamlit.app/))**
 
 *(Replace with your actual deployed URL after deploying to Streamlit Cloud)*
 
