@@ -1,0 +1,30 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data files (large, regenerate from source)
+data/faiss_index.bin
+data/chunks_meta.pkl
+
+# Environment
+.env
+*.log
+
+# Streamlit
+.streamlit/secrets.toml
