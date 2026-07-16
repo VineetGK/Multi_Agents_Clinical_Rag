@@ -2,6 +2,12 @@
 
 A RAG-based clinical question-answering system for 500 synthetic EHR patients. Query demographics, diagnoses, labs, medications, encounters, and clinical notes with natural language.
 
+## 🌐 Live Demo
+
+**[Try it on Streamlit Cloud →](https://clinical-rag-standalone.streamlit.app)**
+
+*(Replace with your actual deployed URL after deploying to Streamlit Cloud)*
+
 ## Quick Start
 
 ```bash
