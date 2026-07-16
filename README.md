@@ -81,7 +81,3 @@ Query → Orchestrator
   │     └── Analysis: Readmission, Diabetes, Renal, HF, Anemia, Infection, Multimorbidity, Timeline, Follow-up
   └── General RAG → Planner → FAISS Retriever → Evaluator
 ```
-
-## Fine-Tuning Data
-
-`ift_dataset_alpaca.json` - 900 instruction-following examples for LLM fine-tuning (50 patients × 18 question types).
