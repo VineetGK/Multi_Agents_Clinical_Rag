@@ -3,8 +3,16 @@ import os
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
+
+
+def _is_abnormal(labs: pd.DataFrame) -> pd.Series:
+    # labs.csv stores abnormal_flag as True/False; also accept "ABNORMAL"/1
+    return labs['abnormal_flag'].astype(str).str.strip().str.lower().isin(['true', 'abnormal', '1'])
+
+
 class ClinicalAnalyzer:
-    def __init__(self, data_dir: str = "data"):
+    def __init__(self, data_dir: str = DATA_DIR):
         self.data_dir = data_dir
         self.patients_df = pd.read_csv(os.path.join(data_dir, "patients.csv"))
         self.diagnoses_df = pd.read_csv(os.path.join(data_dir, "diagnoses.csv"))
@@ -115,7 +123,7 @@ class ClinicalAnalyzer:
         high_risk_encounters = encounters[encounters['readmission_30d'] == 1]
         risk_notes = notes[notes['note_text'].str.contains('high risk|readmission', case=False, na=False)]
         chronic_count = diagnoses['diagnosis_name'].nunique()
-        abnormal_labs = labs[labs['abnormal_flag'] == 'ABNORMAL']
+        abnormal_labs = labs[_is_abnormal(labs)]
         
         parts = []
         if not high_risk_encounters.empty:
@@ -163,7 +171,7 @@ class ClinicalAnalyzer:
         if not creat_labs.empty:
             latest = creat_labs.sort_values('result_date').iloc[-1]
             parts.append(f"Latest Creatinine: {latest['lab_value']} {latest['lab_unit']} on {latest['result_date']} ({latest['abnormal_flag']})")
-            abnormal_count = len(creat_labs[creat_labs['abnormal_flag'] == 'ABNORMAL'])
+            abnormal_count = len(creat_labs[_is_abnormal(creat_labs)])
             if abnormal_count > 1:
                 parts.append(f"Multiple abnormal creatinine results: {abnormal_count}")
         return "; ".join(parts)
@@ -191,7 +199,7 @@ class ClinicalAnalyzer:
         if hgb_labs.empty:
             return "No hemoglobin labs found"
         latest = hgb_labs.sort_values('result_date').iloc[-1]
-        abnormal = hgb_labs[hgb_labs['abnormal_flag'] == 'ABNORMAL']
+        abnormal = hgb_labs[_is_abnormal(hgb_labs)]
         parts = [f"Latest Hemoglobin: {latest['lab_value']} {latest['lab_unit']} on {latest['result_date']} ({latest['abnormal_flag']})"]
         if len(abnormal) > 0:
             parts.append(f"Abnormal hemoglobin results: {len(abnormal)}")
@@ -202,7 +210,7 @@ class ClinicalAnalyzer:
         if wbc_labs.empty:
             return "No WBC labs found"
         latest = wbc_labs.sort_values('result_date').iloc[-1]
-        abnormal = wbc_labs[wbc_labs['abnormal_flag'] == 'ABNORMAL']
+        abnormal = wbc_labs[_is_abnormal(wbc_labs)]
         parts = [f"Latest WBC: {latest['lab_value']} {latest['lab_unit']} on {latest['result_date']} ({latest['abnormal_flag']})"]
         if len(abnormal) > 0:
             parts.append(f"Abnormal WBC results: {len(abnormal)} (suggesting possible infection/inflammation)")
@@ -233,13 +241,24 @@ class ClinicalAnalyzer:
     def _analyze_30day_followup(self, encounters, labs, medications, notes) -> str:
         if encounters.empty:
             return "No encounters to analyze"
-        last_discharge = encounters.iloc[-1]['discharge_date']
-        followup_enc = encounters[encounters['admit_date'] > last_discharge]
-        followup_labs = labs[labs['result_date'] > last_discharge]
-        followup_meds = medications[medications['start_date'] > last_discharge]
-        followup_notes = notes[notes['note_date'] > last_discharge]
-        
-        parts = [f"Last discharge: {last_discharge}"]
+        # Use the most recent discharge (by date, not row order) and only count
+        # activity in the 30 days after it
+        discharges = pd.to_datetime(encounters['discharge_date'], errors='coerce').dropna()
+        if discharges.empty:
+            return "No discharges to analyze"
+        last_discharge = discharges.max()
+        window_end = last_discharge + pd.Timedelta(days=30)
+
+        def in_window(df, col):
+            dates = pd.to_datetime(df[col], errors='coerce')
+            return df[(dates > last_discharge) & (dates <= window_end)]
+
+        followup_enc = in_window(encounters, 'admit_date')
+        followup_labs = in_window(labs, 'result_date')
+        followup_meds = in_window(medications, 'start_date')
+        followup_notes = in_window(notes, 'note_date')
+
+        parts = [f"Last discharge: {last_discharge.date()}"]
         if not followup_enc.empty:
             parts.append(f"Follow-up encounters within 30 days: {len(followup_enc)}")
         if not followup_labs.empty:

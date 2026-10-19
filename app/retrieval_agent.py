@@ -5,8 +5,12 @@ import pickle
 from sentence_transformers import SentenceTransformer
 from typing import List, Dict, Any
 
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
+
+
 class RetrievalAgent:
-    def __init__(self, index_path: str = "data/faiss_index.bin", meta_path: str = "data/chunks_meta.pkl"):
+    def __init__(self, index_path: str = os.path.join(DATA_DIR, "faiss_index.bin"),
+                 meta_path: str = os.path.join(DATA_DIR, "chunks_meta.pkl")):
         self.index_path = index_path
         self.meta_path = meta_path
         self.encoder = SentenceTransformer('all-MiniLM-L6-v2')

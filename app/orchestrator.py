@@ -6,6 +6,15 @@ from .retrieval_agent import RetrievalAgent
 from .evaluator_agent import EvaluatorAgent
 from .clinical_analyzer import ClinicalAnalyzer, generate_handoff_summary
 
+# Short keywords that must match as whole words, so "CKD stage", "dosage" or
+# "average" aren't treated as demographics questions
+_WHOLE_WORD_KEYWORDS = {'age', 'sex', 'race'}
+
+def _has_keyword(text: str, kw: str) -> bool:
+    if kw in _WHOLE_WORD_KEYWORDS:
+        return re.search(rf'\b{kw}\b', text) is not None
+    return kw in text
+
 class Orchestrator:
     def __init__(self):
         self.planner = PlannerAgent()
@@ -32,7 +41,7 @@ class Orchestrator:
             'labeled high risk', 'high risk', 'readmission'
         ]
         has_patient = bool(re.search(r'[pP]\d{4}', query))
-        return has_patient and any(kw in query_lower for kw in clinical_keywords)
+        return has_patient and any(_has_keyword(query_lower, kw) for kw in clinical_keywords)
 
     def _is_count_query(self, query: str) -> bool:
         query_lower = query.lower()
@@ -58,8 +67,10 @@ class Orchestrator:
         # Generate response based on query type
         query_lower = query.lower()
         
+        # Branches are ordered specific-first: the generic diagnosis/notes/lab
+        # lookups (17-20) come last so they only catch what nothing else did.
         # 1. Demographics: age, sex, race, chronic conditions count
-        if any(kw in query_lower for kw in ['age', 'sex', 'race', 'demographic', 'chronic condition count', 'chronic conditions count']):
+        if any(_has_keyword(query_lower, kw) for kw in ['age', 'sex', 'race', 'demographic', 'chronic condition count', 'chronic conditions count']):
             patient_row = self.patients_df[self.patients_df['patient_id'] == patient_id].iloc[0]
             return {
                 "answer": f"Patient {patient_id}: Age {patient_row['age']}, Sex {patient_row['sex']}, Race {patient_row['race']}, Chronic Conditions Count: {patient_row['chronic_conditions_count']}",
@@ -67,16 +78,7 @@ class Orchestrator:
                 "sources": [{"text": f"From patients.csv", "metadata": {"source": "patients.csv", "patient_id": patient_id}}]
             }
         
-        # 2. Diagnoses with dates
-        if 'diagnos' in query_lower:
-            dx_str = analysis['diagnoses']
-            if dx_str and dx_str != "No diagnoses recorded":
-                ans = f"Patient {patient_id} diagnoses:\n{dx_str}"
-            else:
-                ans = f"No diagnoses found for patient {patient_id}."
-            return {"answer": ans, "grounded": True, "sources": [{"text": "From diagnoses.csv", "metadata": {"source": "diagnoses.csv", "patient_id": patient_id}}]}
-        
-        # 3. High readmission risk labels in clinical notes (must come before discharge summary)
+        # 2. High readmission risk labels in clinical notes (must come before discharge summary)
         if any(kw in query_lower for kw in ['readmission', 'high risk']) and any(kw in query_lower for kw in ['label', 'ever been labeled', 'flagged', 'explicit', 'labeled']):
             notes_str = analysis['clinical_notes']
             if notes_str and notes_str != "No clinical notes recorded":
@@ -89,49 +91,27 @@ class Orchestrator:
                 ans = f"No clinical notes found for patient {patient_id}."
             return {"answer": ans, "grounded": True, "sources": [{"text": "From clinical_notes.csv", "metadata": {"source": "clinical_notes.csv", "patient_id": patient_id}}]}
         
-        # 4. Discharge summaries / clinical notes
-        if any(kw in query_lower for kw in ['discharge', 'clinical note', 'summary']):
-            notes_str = analysis['clinical_notes']
-            if notes_str and notes_str != "No clinical notes recorded":
-                ans = f"Patient {patient_id} discharge summaries:\n{notes_str}"
-            else:
-                ans = f"No discharge summaries found for patient {patient_id}."
-            return {"answer": ans, "grounded": True, "sources": [{"text": "From clinical_notes.csv", "metadata": {"source": "clinical_notes.csv", "patient_id": patient_id}}]}
+        # 3. Handoff summary
+        if 'handoff' in query_lower or 'summarize' in query_lower:
+            handoff = generate_handoff_summary({'patient_id': patient_id, 'demographics': analysis['demographics'], 'analysis': analysis['analysis']})
+            return {"answer": handoff, "grounded": True, "sources": [{"text": "From all data sources", "metadata": {"source": "multiple", "patient_id": patient_id}}]}
         
-        # 5. Latest lab results with abnormal flags
-        if 'lab' in query_lower and any(kw in query_lower for kw in ['latest', 'recent', 'abnormal']):
-            labs_str = analysis['labs']
-            if labs_str and labs_str != "No lab results recorded":
-                ans = f"Patient {patient_id} lab results:\n{labs_str}"
+        # 4. 30-day follow-up after discharge
+        if any(kw in query_lower for kw in ['follow-up', 'follow up', '30 day', '30-day']):
+            followup = analysis['analysis']['followup_30day']
+            if followup:
+                ans = f"Patient {patient_id} 30-day follow-up after discharge:\n{followup}"
             else:
-                ans = f"No lab results found for patient {patient_id}."
-            return {"answer": ans, "grounded": True, "sources": [{"text": "From labs.csv", "metadata": {"source": "labs.csv", "patient_id": patient_id}}]}
+                ans = f"No follow-up events within 30 days of discharge found for patient {patient_id}."
+            return {"answer": ans, "grounded": True, "sources": [{"text": "From encounters.csv, labs.csv, medications.csv", "metadata": {"source": "multiple", "patient_id": patient_id}}]}
         
-        # 6. Specific lab tests (creatinine, BNP, A1c, glucose, sodium, WBC, hemoglobin)
-        if any(x in query_lower for x in ['creatinine', 'bnp', 'a1c', 'hba1c', 'glucose', 'sodium', 'wbc', 'white blood', 'hemoglobin', 'hgb']):
-            labs_str = analysis['labs']
-            if labs_str and labs_str != "No lab results recorded":
-                lab_lines = labs_str.split('\n')
-                test_keywords = []
-                if 'creatinine' in query_lower: test_keywords.append('creatinine')
-                if 'bnp' in query_lower: test_keywords.append('bnp')
-                if 'a1c' in query_lower or 'hba1c' in query_lower: test_keywords.append('a1c')
-                if 'a1c' in query_lower or 'hba1c' in query_lower: test_keywords.append('hba1c')
-                if 'glucose' in query_lower: test_keywords.append('glucose')
-                if 'sodium' in query_lower: test_keywords.append('sodium')
-                if 'wbc' in query_lower or 'white blood' in query_lower: test_keywords.append('wbc')
-                if 'hemoglobin' in query_lower or 'hgb' in query_lower: test_keywords.append('hemoglobin')
-                
-                matched = [l for l in lab_lines if any(kw in l.lower() for kw in test_keywords)]
-                if matched:
-                    ans = f"Patient {patient_id} {', '.join(test_keywords).upper()} results:\n" + "\n".join(matched)
-                else:
-                    ans = f"No {', '.join(test_keywords).upper()} results found for patient {patient_id}."
-            else:
-                ans = f"No lab results found for patient {patient_id}."
-            return {"answer": ans, "grounded": True, "sources": [{"text": "From labs.csv", "metadata": {"source": "labs.csv", "patient_id": patient_id}}]}
+        # 5. Readmission risk factors
+        if 'readmission' in query_lower and 'factor' in query_lower:
+            risk = analysis['analysis']['readmission_risk']
+            ans = f"Patient {patient_id} Readmission Risk Factors:\n{risk}"
+            return {"answer": ans, "grounded": True, "sources": [{"text": "From clinical_notes.csv, diagnoses.csv, labs.csv, encounters.csv", "metadata": {"source": "multiple", "patient_id": patient_id}}]}
         
-        # 7. A1c trend with diabetes control assessment
+        # 6. A1c trend with diabetes control assessment
         if 'a1c' in query_lower and 'trend' in query_lower:
             labs_str = analysis['labs']
             if labs_str and labs_str != "No lab results recorded":
@@ -162,7 +142,7 @@ class Orchestrator:
                 ans = f"No lab results found for patient {patient_id}."
             return {"answer": ans, "grounded": True, "sources": [{"text": "From labs.csv", "metadata": {"source": "labs.csv", "patient_id": patient_id}}]}
         
-        # 8. Repeated renal dysfunction / multiple elevated creatinine
+        # 7. Repeated renal dysfunction / multiple elevated creatinine
         if 'creatinine' in query_lower and any(kw in query_lower for kw in ['repeated', 'multiple', 'renal dysfunction', 'elevated']):
             labs_str = analysis['labs']
             if labs_str and labs_str != "No lab results recorded":
@@ -177,7 +157,7 @@ class Orchestrator:
                 ans = f"No lab results found for patient {patient_id}."
             return {"answer": ans, "grounded": True, "sources": [{"text": "From labs.csv", "metadata": {"source": "labs.csv", "patient_id": patient_id}}]}
         
-        # 9. Infection/inflammation from abnormal WBC
+        # 8. Infection/inflammation from abnormal WBC
         if 'wbc' in query_lower and any(kw in query_lower for kw in ['infection', 'inflammation', 'abnormal']):
             labs_str = analysis['labs']
             if labs_str and labs_str != "No lab results recorded":
@@ -192,7 +172,7 @@ class Orchestrator:
                 ans = f"No lab results found for patient {patient_id}."
             return {"answer": ans, "grounded": True, "sources": [{"text": "From labs.csv", "metadata": {"source": "labs.csv", "patient_id": patient_id}}]}
         
-        # 10. Anemia from hemoglobin history
+        # 9. Anemia from hemoglobin history
         if 'hemoglobin' in query_lower and any(kw in query_lower for kw in ['anemia', 'trend', 'history']):
             labs_str = analysis['labs']
             if labs_str and labs_str != "No lab results recorded":
@@ -209,8 +189,8 @@ class Orchestrator:
                 ans = f"No lab results found for patient {patient_id}."
             return {"answer": ans, "grounded": True, "sources": [{"text": "From labs.csv", "metadata": {"source": "labs.csv", "patient_id": patient_id}}]}
         
-        # 11. Heart failure evidence (CHF diagnosis, elevated BNP, discharge notes)
-        if any(kw in query_lower for kw in ['heart failure', 'chf', 'bnp']):
+        # 10. Heart failure evidence (CHF diagnosis, elevated BNP, discharge notes)
+        if any(kw in query_lower for kw in ['heart failure', 'chf']):
             dx_str = analysis['diagnoses']
             labs_str = analysis['labs']
             notes_str = analysis['clinical_notes']
@@ -232,7 +212,7 @@ class Orchestrator:
                 ans += f"\nClinical notes mentioning HF: {len(hf_notes)}\n" + "\n".join(hf_notes)
             return {"answer": ans, "grounded": True, "sources": [{"text": "From diagnoses.csv, labs.csv, clinical_notes.csv", "metadata": {"source": "multiple", "patient_id": patient_id}}]}
         
-        # 12. Chronic kidney disease (CKD diagnosis + creatinine)
+        # 11. Chronic kidney disease (CKD diagnosis + creatinine)
         if any(kw in query_lower for kw in ['kidney disease', 'ckd', 'chronic kidney']) or ('renal' in query_lower and 'creatinine' in query_lower):
             dx_str = analysis['diagnoses']
             labs_str = analysis['labs']
@@ -251,7 +231,7 @@ class Orchestrator:
                 ans += "\nNo creatinine results found"
             return {"answer": ans, "grounded": True, "sources": [{"text": "From diagnoses.csv, labs.csv", "metadata": {"source": "multiple", "patient_id": patient_id}}]}
         
-        # 13. Poorly controlled diabetes (diagnoses + glucose + A1c)
+        # 12. Poorly controlled diabetes (diagnoses + glucose + A1c)
         if 'diabetes' in query_lower and any(kw in query_lower for kw in ['control', 'poorly', 'glucose', 'a1c', 'hba1c']):
             dx_str = analysis['diagnoses']
             labs_str = analysis['labs']
@@ -271,7 +251,7 @@ class Orchestrator:
                 ans += f"\nGlucose Results (latest 5):\n" + "\n".join(glu_lines[-5:])
             return {"answer": ans, "grounded": True, "sources": [{"text": "From diagnoses.csv, labs.csv", "metadata": {"source": "multiple", "patient_id": patient_id}}]}
         
-        # 14. Multimorbidity
+        # 13. Multimorbidity
         if 'multimorbidity' in query_lower or 'multiple chronic' in query_lower:
             dx_str = analysis['diagnoses']
             if dx_str != "No diagnoses recorded":
@@ -294,7 +274,7 @@ class Orchestrator:
                 ans = f"No diagnoses found for patient {patient_id}."
             return {"answer": ans, "grounded": True, "sources": [{"text": "From diagnoses.csv", "metadata": {"source": "diagnoses.csv", "patient_id": patient_id}}]}
         
-        # 15. Recent clinical timeline
+        # 14. Recent clinical timeline
         if any(kw in query_lower for kw in ['timeline', 'what happened', 'recent clinical']):
             timeline = analysis['analysis']['timeline']
             if timeline:
@@ -305,7 +285,7 @@ class Orchestrator:
                 ans = f"No timeline events found for patient {patient_id}."
             return {"answer": ans, "grounded": True, "sources": [{"text": "From multiple sources", "metadata": {"source": "multiple", "patient_id": patient_id}}]}
         
-        # 16. Encounter count and most recent
+        # 15. Encounter count and most recent
         if 'encounter' in query_lower and any(kw in query_lower for kw in ['how many', 'most recent', 'count', 'number']):
             encounters_str = analysis['encounters']
             if encounters_str and encounters_str != "No encounters recorded":
@@ -317,7 +297,7 @@ class Orchestrator:
                 ans = f"No encounters found for patient {patient_id}."
             return {"answer": ans, "grounded": True, "sources": [{"text": "From encounters.csv", "metadata": {"source": "encounters.csv", "patient_id": patient_id}}]}
         
-        # 17. Medications aligning with chronic conditions
+        # 16. Medications aligning with chronic conditions
         if 'medication' in query_lower and any(kw in query_lower for kw in ['align', 'chronic']):
             meds_str = analysis['medications']
             dx_str = analysis['diagnoses']
@@ -340,25 +320,56 @@ class Orchestrator:
                 ans += "No medications recorded"
             return {"answer": ans, "grounded": True, "sources": [{"text": "From medications.csv, diagnoses.csv", "metadata": {"source": "multiple", "patient_id": patient_id}}]}
         
-        # 18. 30-day follow-up after discharge
-        if any(kw in query_lower for kw in ['follow-up', 'follow up', '30 day', '30-day']):
-            followup = analysis['analysis']['followup_30day']
-            if followup:
-                ans = f"Patient {patient_id} 30-day follow-up after discharge:\n{followup}"
+        # 17. Diagnoses with dates
+        if 'diagnos' in query_lower:
+            dx_str = analysis['diagnoses']
+            if dx_str and dx_str != "No diagnoses recorded":
+                ans = f"Patient {patient_id} diagnoses:\n{dx_str}"
             else:
-                ans = f"No follow-up events within 30 days of discharge found for patient {patient_id}."
-            return {"answer": ans, "grounded": True, "sources": [{"text": "From encounters.csv, labs.csv, medications.csv", "metadata": {"source": "multiple", "patient_id": patient_id}}]}
+                ans = f"No diagnoses found for patient {patient_id}."
+            return {"answer": ans, "grounded": True, "sources": [{"text": "From diagnoses.csv", "metadata": {"source": "diagnoses.csv", "patient_id": patient_id}}]}
         
-        # 19. Readmission risk factors
-        if 'readmission' in query_lower and 'factor' in query_lower:
-            risk = analysis['analysis']['readmission_risk']
-            ans = f"Patient {patient_id} Readmission Risk Factors:\n{risk}"
-            return {"answer": ans, "grounded": True, "sources": [{"text": "From clinical_notes.csv, diagnoses.csv, labs.csv, encounters.csv", "metadata": {"source": "multiple", "patient_id": patient_id}}]}
+        # 18. Discharge summaries / clinical notes
+        if any(kw in query_lower for kw in ['discharge', 'clinical note', 'summary']):
+            notes_str = analysis['clinical_notes']
+            if notes_str and notes_str != "No clinical notes recorded":
+                ans = f"Patient {patient_id} discharge summaries:\n{notes_str}"
+            else:
+                ans = f"No discharge summaries found for patient {patient_id}."
+            return {"answer": ans, "grounded": True, "sources": [{"text": "From clinical_notes.csv", "metadata": {"source": "clinical_notes.csv", "patient_id": patient_id}}]}
         
-        # 20. Handoff summary
-        if 'handoff' in query_lower or 'summarize' in query_lower:
-            handoff = generate_handoff_summary({'patient_id': patient_id, 'demographics': analysis['demographics'], 'analysis': analysis['analysis']})
-            return {"answer": handoff, "grounded": True, "sources": [{"text": "From all data sources", "metadata": {"source": "multiple", "patient_id": patient_id}}]}
+        # 19. Latest lab results with abnormal flags
+        if 'lab' in query_lower and any(kw in query_lower for kw in ['latest', 'recent', 'abnormal']):
+            labs_str = analysis['labs']
+            if labs_str and labs_str != "No lab results recorded":
+                ans = f"Patient {patient_id} lab results:\n{labs_str}"
+            else:
+                ans = f"No lab results found for patient {patient_id}."
+            return {"answer": ans, "grounded": True, "sources": [{"text": "From labs.csv", "metadata": {"source": "labs.csv", "patient_id": patient_id}}]}
+        
+        # 20. Specific lab tests (creatinine, BNP, A1c, glucose, sodium, WBC, hemoglobin)
+        if any(x in query_lower for x in ['creatinine', 'bnp', 'a1c', 'hba1c', 'glucose', 'sodium', 'wbc', 'white blood', 'hemoglobin', 'hgb']):
+            labs_str = analysis['labs']
+            if labs_str and labs_str != "No lab results recorded":
+                lab_lines = labs_str.split('\n')
+                test_keywords = []
+                if 'creatinine' in query_lower: test_keywords.append('creatinine')
+                if 'bnp' in query_lower: test_keywords.append('bnp')
+                if 'a1c' in query_lower or 'hba1c' in query_lower: test_keywords.append('a1c')
+                if 'a1c' in query_lower or 'hba1c' in query_lower: test_keywords.append('hba1c')
+                if 'glucose' in query_lower: test_keywords.append('glucose')
+                if 'sodium' in query_lower: test_keywords.append('sodium')
+                if 'wbc' in query_lower or 'white blood' in query_lower: test_keywords.append('wbc')
+                if 'hemoglobin' in query_lower or 'hgb' in query_lower: test_keywords.append('hemoglobin')
+                
+                matched = [l for l in lab_lines if any(kw in l.lower() for kw in test_keywords)]
+                if matched:
+                    ans = f"Patient {patient_id} {', '.join(test_keywords).upper()} results:\n" + "\n".join(matched)
+                else:
+                    ans = f"No {', '.join(test_keywords).upper()} results found for patient {patient_id}."
+            else:
+                ans = f"No lab results found for patient {patient_id}."
+            return {"answer": ans, "grounded": True, "sources": [{"text": "From labs.csv", "metadata": {"source": "labs.csv", "patient_id": patient_id}}]}
         
         return None
 

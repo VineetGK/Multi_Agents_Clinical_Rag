@@ -5,7 +5,7 @@ import pickle
 import os
 from sentence_transformers import SentenceTransformer
 
-DATA_DIR = 'multi-agent-rag/data'
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
 
 def build_index():
     print("Loading synthetic data...")
